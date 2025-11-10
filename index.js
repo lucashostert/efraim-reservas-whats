@@ -1,12 +1,24 @@
 const venom = require('venom-bot');
 const axios = require('axios');
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || '*',
+    methods: ['GET', 'POST']
+  }
+});
+
 app.use(express.json());
 
 let client = null;
+let qrCodeData = null;
+let connectionStatus = 'disconnected';
 
 // Configurações
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
@@ -17,6 +29,8 @@ const SESSION_NAME = 'efraim-whatsapp';
 // ========== INICIAR VENOM-BOT ==========
 async function startBot() {
   console.log('🚀 Iniciando Venom-Bot...');
+  connectionStatus = 'connecting';
+  io.emit('status', { status: 'connecting' });
   
   try {
     client = await venom.create(
@@ -26,9 +40,17 @@ async function startBot() {
         console.log(asciiQR); // QR code em ASCII para terminal
         console.log('🔗 Ou escaneie este link:', urlCode);
         console.log(`Tentativa ${attempts} de 4`);
+        
+        // Armazenar QR code e emitir para frontend
+        qrCodeData = base64Qr;
+        connectionStatus = 'qr_ready';
+        io.emit('qrcode', { qr: base64Qr, attempts });
+        io.emit('status', { status: 'qr_ready', attempts });
       },
       (statusSession, session) => {
         console.log('📊 Status da sessão:', statusSession);
+        connectionStatus = statusSession;
+        io.emit('status', { status: statusSession });
       },
       {
         headless: true, // true para produção (Railway)
@@ -52,6 +74,11 @@ async function startBot() {
 
     console.log('✅ Venom-Bot conectado com sucesso!');
     console.log('📱 WhatsApp está pronto para receber mensagens');
+    
+    connectionStatus = 'connected';
+    qrCodeData = null;
+    io.emit('status', { status: 'connected' });
+    io.emit('connected', { message: 'WhatsApp conectado com sucesso!' });
 
     // ========== RECEBER MENSAGENS ==========
     client.onMessage(async (message) => {
@@ -78,6 +105,9 @@ async function startBot() {
 
         await axios.post(WEBHOOK_ENDPOINT, webhookData);
         console.log('✅ Mensagem enviada para o backend');
+        
+        // Emitir mensagem para frontend via WebSocket
+        io.emit('message', webhookData);
 
       } catch (error) {
         console.error('❌ Erro ao processar mensagem:', error.message);
@@ -87,8 +117,13 @@ async function startBot() {
     // ========== EVENTOS ==========
     client.onStateChange((state) => {
       console.log('🔄 Estado do WhatsApp mudou:', state);
+      connectionStatus = state;
+      io.emit('status', { status: state });
+      
       if (state === 'CONFLICT' || state === 'UNLAUNCHED') {
         console.log('⚠️ Sessão desconectada, reiniciando...');
+        connectionStatus = 'disconnected';
+        io.emit('status', { status: 'disconnected' });
         client.useHere();
       }
     });
@@ -101,11 +136,30 @@ async function startBot() {
 
 // ========== API REST PARA ENVIAR MENSAGENS ==========
 
+// ========== WEBSOCKET CONNECTIONS ==========
+io.on('connection', (socket) => {
+  console.log('🔌 Frontend conectado via WebSocket:', socket.id);
+  
+  // Enviar status atual
+  socket.emit('status', { status: connectionStatus });
+  
+  // Se tem QR code disponível, enviar
+  if (qrCodeData) {
+    socket.emit('qrcode', { qr: qrCodeData });
+  }
+  
+  socket.on('disconnect', () => {
+    console.log('🔌 Frontend desconectado:', socket.id);
+  });
+});
+
+// ========== API REST ==========
+
 // Health check
 app.get('/health', (req, res) => {
-  const isConnected = client !== null;
   res.json({
-    status: isConnected ? 'online' : 'offline',
+    status: connectionStatus,
+    hasClient: client !== null,
     session: SESSION_NAME,
     timestamp: new Date().toISOString()
   });
@@ -115,14 +169,72 @@ app.get('/health', (req, res) => {
 app.get('/status', async (req, res) => {
   try {
     if (!client) {
-      return res.json({ connected: false, message: 'Bot não iniciado' });
+      return res.json({ 
+        connected: false, 
+        status: connectionStatus,
+        message: 'Bot não iniciado' 
+      });
     }
 
     const state = await client.getConnectionState();
     res.json({
       connected: state === 'CONNECTED',
-      state: state,
+      status: state,
       session: SESSION_NAME
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obter QR Code atual
+app.get('/qrcode', (req, res) => {
+  if (qrCodeData) {
+    res.json({ 
+      qr: qrCodeData,
+      status: connectionStatus 
+    });
+  } else if (connectionStatus === 'connected') {
+    res.json({ 
+      connected: true,
+      message: 'WhatsApp já está conectado' 
+    });
+  } else {
+    res.status(404).json({ 
+      error: 'QR Code não disponível',
+      status: connectionStatus,
+      message: 'Aguarde ou inicie nova conexão' 
+    });
+  }
+});
+
+// Iniciar nova conexão
+app.post('/connect', async (req, res) => {
+  try {
+    if (client && connectionStatus === 'connected') {
+      return res.json({ 
+        message: 'WhatsApp já está conectado',
+        status: connectionStatus 
+      });
+    }
+    
+    if (connectionStatus === 'connecting' || connectionStatus === 'qr_ready') {
+      return res.json({ 
+        message: 'Conexão em andamento',
+        status: connectionStatus 
+      });
+    }
+    
+    // Iniciar bot em background
+    startBot().catch(err => {
+      console.error('Erro ao iniciar bot:', err);
+      connectionStatus = 'error';
+      io.emit('status', { status: 'error', error: err.message });
+    });
+    
+    res.json({ 
+      message: 'Iniciando conexão com WhatsApp',
+      status: 'connecting' 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -185,11 +297,17 @@ app.post('/disconnect', async (req, res) => {
 });
 
 // ========== INICIAR SERVIDOR ==========
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🌐 Servidor rodando na porta ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`📍 Status: http://localhost:${PORT}/status`);
+  console.log(`📍 QR Code: http://localhost:${PORT}/qrcode`);
+  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
   console.log('');
+  console.log('⚠️  Nota: Inicie conexão via POST /connect ou aguarde conexão automática');
+  console.log('');
+  
+  // Iniciar bot automaticamente
   startBot();
 });
 
