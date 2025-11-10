@@ -3,7 +3,8 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const cors = require('cors');
-const qrcode = require('qrcode-terminal');
+const qrcodeTerminal = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
 const app = express();
@@ -82,22 +83,32 @@ async function startBot() {
     });
 
     // QR Code gerado
-    client.on('qr', (qr) => {
+    client.on('qr', async (qr) => {
       console.log('');
       console.log('='.repeat(60));
       console.log('📱 QR CODE GERADO!');
       console.log('='.repeat(60));
-      qrcode.generate(qr, { small: true });
+      qrcodeTerminal.generate(qr, { small: true });
       console.log('='.repeat(60));
       console.log('');
       
-      qrCodeData = qr;
-      connectionStatus = 'qr_ready';
-      
-      console.log('📤 Emitindo QR via WebSocket...');
-      io.emit('qrcode', { qr: qr });
-      io.emit('status', { status: 'qr_ready' });
-      console.log('✅ QR emitido!');
+      // Converter QR string para base64
+      try {
+        const qrBase64 = await QRCode.toDataURL(qr);
+        qrCodeData = qrBase64;
+        connectionStatus = 'qr_ready';
+        
+        console.log('📤 Emitindo QR via WebSocket (base64)...');
+        io.emit('qrcode', { qr: qrBase64 });
+        io.emit('status', { status: 'qr_ready' });
+        console.log('✅ QR emitido em formato base64!');
+      } catch (err) {
+        console.error('❌ Erro ao converter QR para base64:', err.message);
+        // Fallback: enviar string
+        qrCodeData = qr;
+        io.emit('qrcode', { qr: qr });
+        io.emit('status', { status: 'qr_ready' });
+      }
     });
 
     // Cliente pronto
