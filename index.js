@@ -83,19 +83,31 @@ async function startBot() {
   }
   
   try {
+    console.log('🔄 Chamando venom.create...');
+    
     client = await venom.create(
       SESSION_NAME,
       (base64Qr, asciiQR, attempts, urlCode) => {
-        console.log('📱 QR CODE gerado!');
-        console.log(asciiQR); // QR code em ASCII para terminal
-        console.log('🔗 Ou escaneie este link:', urlCode);
-        console.log(`Tentativa ${attempts} de 4`);
+        console.log('');
+        console.log('='.repeat(60));
+        console.log('📱 QR CALLBACK CHAMADO!');
+        console.log('='.repeat(60));
+        console.log('Tentativa:', attempts);
+        console.log('URL Code:', urlCode);
+        console.log('Base64 length:', base64Qr ? base64Qr.length : 0);
+        console.log('');
+        console.log(asciiQR);
+        console.log('');
+        console.log('='.repeat(60));
         
         // Armazenar QR code e emitir para frontend
         qrCodeData = base64Qr;
         connectionStatus = 'qr_ready';
+        
+        console.log('📤 Emitindo QR via WebSocket...');
         io.emit('qrcode', { qr: base64Qr, attempts });
         io.emit('status', { status: 'qr_ready', attempts });
+        console.log('✅ QR emitido!');
       },
       (statusSession, session) => {
         console.log('📊 Status da sessão:', statusSession);
