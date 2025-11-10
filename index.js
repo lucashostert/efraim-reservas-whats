@@ -28,6 +28,7 @@ app.use(express.json());
 let client = null;
 let qrCodeData = null;
 let connectionStatus = 'disconnected';
+let isStarting = false; // Guard para prevenir múltiplas chamadas simultâneas
 
 // Configurações
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
@@ -45,9 +46,35 @@ console.log('');
 
 // ========== INICIAR VENOM-BOT ==========
 async function startBot() {
+  // Prevenir múltiplas inicializações simultâneas
+  if (isStarting) {
+    console.log('⏳ Bot já está sendo iniciado... aguarde.');
+    return;
+  }
+  
+  if (client) {
+    console.log('✅ Bot já está rodando.');
+    return;
+  }
+  
+  isStarting = true;
   console.log('🚀 Iniciando Venom-Bot...');
   connectionStatus = 'connecting';
   io.emit('status', { status: 'connecting' });
+  
+  // Limpar lock file se existir
+  const fs = require('fs');
+  const path = require('path');
+  const lockFile = path.join(__dirname, 'tokens', SESSION_NAME, 'SingletonLock');
+  
+  try {
+    if (fs.existsSync(lockFile)) {
+      console.log('🗑️  Removendo SingletonLock antigo...');
+      fs.unlinkSync(lockFile);
+    }
+  } catch (err) {
+    console.log('⚠️  Não foi possível remover lock file:', err.message);
+  }
   
   try {
     client = await venom.create(
@@ -113,7 +140,9 @@ async function startBot() {
           '--no-pings',
           '--password-store=basic',
           '--use-gl=swiftshader',
-          '--use-mock-keychain'
+          '--use-mock-keychain',
+          // Crítico para resolver SingletonLock
+          '--disable-features=ProcessSingletonOnLinux'
         ],
         autoClose: 60000,
         disableWelcome: true,
@@ -197,6 +226,8 @@ async function startBot() {
     // NÃO fazer process.exit() para o servidor continuar rodando
     console.log('⚠️  Venom-Bot falhou ao iniciar, mas servidor HTTP continua ativo');
     console.log('⚠️  Você pode tentar reconectar via POST /connect');
+  } finally {
+    isStarting = false; // Resetar guard
   }
 }
 
