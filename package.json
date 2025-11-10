@@ -4,7 +4,7 @@
   "description": "Venom-Bot integration for Efraim Reservas",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "bash start.sh",
     "dev": "nodemon index.js"
   },
   "dependencies": {

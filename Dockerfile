@@ -42,6 +42,9 @@ RUN npm ci --only=production --no-audit --no-fund
 # Copiar código
 COPY . .
 
+# Dar permissão de execução ao script de start
+RUN chmod +x start.sh
+
 # Criar diretório para tokens/sessões
 RUN mkdir -p /app/tokens && chmod 777 /app/tokens
 
@@ -52,5 +55,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Iniciar aplicação
-CMD ["node", "index.js"]
+# Iniciar aplicação usando npm start (que executa start.sh)
+CMD ["npm", "start"]
