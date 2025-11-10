@@ -3,6 +3,7 @@ const axios = require('axios');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
@@ -13,6 +14,14 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   }
 });
+
+// CORS para requisições HTTP
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
 app.use(express.json());
 
