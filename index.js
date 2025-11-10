@@ -114,12 +114,19 @@ async function startBot() {
         io.emit('status', { status: statusSession });
       },
       {
-        headless: true,
+        headless: 'new', // usar novo headless mode
         useChrome: false,
-        debug: false,
+        debug: true, // ativar debug
         logQR: true,
         executablePath: '/usr/bin/chromium',
-        // NÃO customizar paths - deixar Venom usar defaults
+        catchQR: (base64Qr, asciiQR, attempts) => {
+          console.log('🎯 CATCH QR ATIVADO!');
+          console.log(asciiQR);
+          qrCodeData = base64Qr;
+          connectionStatus = 'qr_ready';
+          io.emit('qrcode', { qr: base64Qr, attempts });
+          io.emit('status', { status: 'qr_ready', attempts });
+        },
         browserArgs: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
