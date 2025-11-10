@@ -265,28 +265,42 @@ app.get('/chats', async (req, res) => {
   try {
     const chats = await client.getChats();
     const chatList = await Promise.all(chats.map(async (chat) => {
-      const contact = await chat.getContact();
-      const lastMessage = chat.lastMessage;
-      
-      return {
-        id: chat.id._serialized,
-        name: chat.name || contact.pushname || contact.number,
-        isGroup: chat.isGroup,
-        unreadCount: chat.unreadCount,
-        timestamp: chat.timestamp,
-        lastMessage: lastMessage ? {
-          body: lastMessage.body,
-          timestamp: lastMessage.timestamp,
-          fromMe: lastMessage.fromMe
-        } : null,
-        profilePicUrl: null // Pode adicionar depois se necessário
-      };
+      try {
+        const contact = await chat.getContact();
+        const lastMessage = chat.lastMessage;
+        
+        // Tentar buscar foto de perfil
+        let profilePicUrl = null;
+        try {
+          profilePicUrl = await chat.getProfilePicUrl();
+        } catch (err) {
+          // Foto não disponível, usar null
+        }
+        
+        return {
+          id: chat.id._serialized,
+          name: chat.name || contact.pushname || contact.number,
+          isGroup: chat.isGroup,
+          unreadCount: chat.unreadCount,
+          timestamp: chat.timestamp,
+          lastMessage: lastMessage ? {
+            body: lastMessage.body,
+            timestamp: lastMessage.timestamp,
+            fromMe: lastMessage.fromMe
+          } : null,
+          profilePicUrl: profilePicUrl
+        };
+      } catch (err) {
+        console.error('Erro ao processar chat:', err.message);
+        return null;
+      }
     }));
     
-    // Ordenar por timestamp (mais recente primeiro)
-    chatList.sort((a, b) => b.timestamp - a.timestamp);
+    // Filtrar chats nulos e ordenar por timestamp (mais recente primeiro)
+    const validChats = chatList.filter(chat => chat !== null);
+    validChats.sort((a, b) => b.timestamp - a.timestamp);
     
-    res.json(chatList);
+    res.json(validChats);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
