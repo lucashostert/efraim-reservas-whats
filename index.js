@@ -203,10 +203,18 @@ app.get('/health', (req, res) => {
 app.get('/status', async (req, res) => {
   try {
     if (!client) {
+      // Se bot não está rodando, tentar iniciar automaticamente
+      console.log('⚠️  Bot não iniciado, iniciando automaticamente...');
+      
+      // Iniciar em background
+      startBot().catch(err => {
+        console.error('❌ Erro ao auto-iniciar bot:', err.message);
+      });
+      
       return res.json({ 
         connected: false, 
-        status: connectionStatus,
-        message: 'Bot não iniciado' 
+        status: 'starting',
+        message: 'Iniciando bot... Aguarde alguns segundos e atualize novamente.' 
       });
     }
 
