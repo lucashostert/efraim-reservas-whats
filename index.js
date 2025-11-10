@@ -62,39 +62,24 @@ async function startBot() {
   connectionStatus = 'connecting';
   io.emit('status', { status: 'connecting' });
   
-  // Limpar TODOS os diretórios de tokens possíveis
+  // Limpar diretório tokens completamente
   const fs = require('fs');
   const path = require('path');
+  const tokensDir = path.join(__dirname, 'tokens');
   
-  // Tentar limpar todos os paths possíveis
-  const possiblePaths = [
-    path.join(__dirname, 'tokens', SESSION_NAME),
-    path.join(__dirname, SESSION_NAME),
-    path.join(__dirname, 'tokens'),
-    path.join('/app', SESSION_NAME),
-    path.join('/app', 'tokens', SESSION_NAME)
-  ];
+  console.log('🗑️  Limpando diretório tokens...');
   
-  console.log('🗑️  Limpando TODAS as sessões antigas possíveis...');
-  
-  for (const dirPath of possiblePaths) {
-    try {
-      if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
-        console.log(`   → Removendo: ${dirPath}`);
-        fs.rmSync(dirPath, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.log(`   ⚠️  Não foi possível remover ${dirPath}:`, err.message);
-    }
-  }
-  
-  // Criar diretório limpo
-  const tokensDir = path.join(__dirname, 'tokens', SESSION_NAME);
   try {
+    if (fs.existsSync(tokensDir)) {
+      // Remover TUDO dentro de tokens
+      fs.rmSync(tokensDir, { recursive: true, force: true });
+      console.log('✅ Diretório tokens removido');
+    }
+    // Recriar limpo
     fs.mkdirSync(tokensDir, { recursive: true });
-    console.log('✅ Diretório limpo criado:', tokensDir);
+    console.log('✅ Diretório tokens recriado limpo');
   } catch (err) {
-    console.log('⚠️  Erro ao criar diretório:', err.message);
+    console.log('⚠️  Erro ao limpar tokens:', err.message);
   }
   
   try {
@@ -118,14 +103,12 @@ async function startBot() {
         io.emit('status', { status: statusSession });
       },
       {
-        headless: true, // true para produção (Railway)
+        headless: true,
         useChrome: false,
         debug: false,
         logQR: true,
-        executablePath: '/usr/bin/chromium', // Chromium instalado via APT
-        folderNameToken: SESSION_NAME,
-        mkdirFolderToken: 'tokens', // Pasta tokens como base
-        createPathFileToken: false, // Não criar subpastas extras
+        executablePath: '/usr/bin/chromium',
+        // NÃO customizar paths - deixar Venom usar defaults
         browserArgs: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -171,17 +154,7 @@ async function startBot() {
         autoClose: 60000,
         disableWelcome: true,
         updatesLog: false,
-        deleteToken: true, // FORÇAR deletar token ao conectar
-        catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
-          // Callback duplicado para garantir captura
-          console.log('📱 [catchQR] QR CODE capturado!');
-          qrCodeData = base64Qr;
-          connectionStatus = 'qr_ready';
-          io.emit('qrcode', { qr: base64Qr, attempts });
-          io.emit('status', { status: 'qr_ready', attempts });
-        },
-        waitForLogin: true, // Aguardar login via QR
-        timeoutQR: 600000 // 10 minutos para escanear QR
+        logQR: true
       }
     );
 
