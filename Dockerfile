@@ -1,5 +1,5 @@
 # Imagem base otimizada para Puppeteer/Venom-Bot
-FROM node:18-slim
+FROM node:20-slim
 
 # Variáveis de ambiente para otimizar instalação
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
