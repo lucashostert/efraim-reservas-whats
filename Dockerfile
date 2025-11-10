@@ -1,9 +1,15 @@
 # Imagem base otimizada para Puppeteer/Venom-Bot
 FROM node:18-slim
 
-# Instalar dependências do Chromium
-RUN apt-get update && apt-get install -y \
-    wget \
+# Variáveis de ambiente para otimizar instalação
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
+
+# Instalar dependências do Chromium em uma única camada
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    chromium-sandbox \
     ca-certificates \
     fonts-liberation \
     libappindicator3-1 \
@@ -19,28 +25,32 @@ RUN apt-get update && apt-get install -y \
     libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
-    xdg-utils \
     libgbm1 \
     libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Criar diretório de trabalho
 WORKDIR /app
 
-# Copiar package files
+# Copiar apenas package files primeiro (para cache de camadas)
 COPY package*.json ./
 
-# Instalar dependências
-RUN npm install --production
+# Instalar dependências (sem puppeteer baixar chromium)
+RUN npm ci --only=production --no-audit --no-fund
 
 # Copiar código
 COPY . .
 
 # Criar diretório para tokens/sessões
-RUN mkdir -p /app/tokens
+RUN mkdir -p /app/tokens && chmod 777 /app/tokens
 
 # Expor porta
 EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Iniciar aplicação
 CMD ["node", "index.js"]
