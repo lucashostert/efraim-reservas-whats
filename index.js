@@ -62,20 +62,21 @@ async function startBot() {
   connectionStatus = 'connecting';
   io.emit('status', { status: 'connecting' });
   
-  // Limpar diretório de tokens se lock file existir
+  // Limpar SEMPRE o diretório de tokens para forçar novo QR
   const fs = require('fs');
   const path = require('path');
   const tokensDir = path.join(__dirname, 'tokens', SESSION_NAME);
-  const lockFile = path.join(tokensDir, 'SingletonLock');
   
   try {
-    if (fs.existsSync(lockFile)) {
-      console.log('🗑️  Lock file detectado, limpando diretório de tokens...');
-      // Remover diretório inteiro para garantir estado limpo
+    if (fs.existsSync(tokensDir)) {
+      console.log('🗑️  Limpando sessão antiga para forçar novo QR...');
+      // Remover diretório inteiro para garantir QR novo
       fs.rmSync(tokensDir, { recursive: true, force: true });
-      console.log('✅ Diretório limpo, criando novo...');
-      fs.mkdirSync(tokensDir, { recursive: true });
+      console.log('✅ Sessão limpa! Novo QR será gerado.');
     }
+    
+    // Criar diretório limpo
+    fs.mkdirSync(tokensDir, { recursive: true });
   } catch (err) {
     console.log('⚠️  Erro ao limpar tokens:', err.message);
   }
@@ -106,8 +107,9 @@ async function startBot() {
         debug: false,
         logQR: true,
         executablePath: '/usr/bin/chromium', // Chromium instalado via APT
-        folderNameToken: SESSION_NAME, // Usar nome fixo para persistir sessão
-        mkdirFolderToken: '', // Não criar subpastas
+        folderNameToken: SESSION_NAME,
+        mkdirFolderToken: 'tokens', // Pasta tokens como base
+        createPathFileToken: false, // Não criar subpastas extras
         browserArgs: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
