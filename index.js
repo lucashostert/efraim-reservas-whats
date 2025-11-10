@@ -146,17 +146,26 @@ async function startBot() {
     client.on('message', async (message) => {
       console.log('📨 Mensagem recebida:', message.from, message.body);
       
-      // Enviar para backend via webhook
       try {
-        const webhookData = {
+        const chat = await message.getChat();
+        const contact = await message.getContact();
+        
+        const messageData = {
+          id: message.id._serialized,
           from: message.from,
+          to: message.to,
           body: message.body,
           timestamp: message.timestamp,
-          isGroup: message.from.includes('@g.us')
+          hasMedia: message.hasMedia,
+          type: message.type,
+          isGroup: message.from.includes('@g.us'),
+          chatName: chat.name,
+          contactName: contact.pushname || contact.name || message.from
         };
         
-        // Aqui você pode fazer o POST para o backend se necessário
-        console.log('📤 Webhook data:', webhookData);
+        // Emitir mensagem para frontend via WebSocket
+        io.emit('message', messageData);
+        console.log('📤 Mensagem emitida via WebSocket');
       } catch (error) {
         console.error('❌ Erro ao processar mensagem:', error.message);
       }
@@ -247,8 +256,94 @@ app.post('/disconnect', async (req, res) => {
   }
 });
 
+// Listar todos os chats
+app.get('/chats', async (req, res) => {
+  if (!client || connectionStatus !== 'connected') {
+    return res.status(400).json({ error: 'WhatsApp não conectado' });
+  }
+  
+  try {
+    const chats = await client.getChats();
+    const chatList = await Promise.all(chats.map(async (chat) => {
+      const contact = await chat.getContact();
+      const lastMessage = chat.lastMessage;
+      
+      return {
+        id: chat.id._serialized,
+        name: chat.name || contact.pushname || contact.number,
+        isGroup: chat.isGroup,
+        unreadCount: chat.unreadCount,
+        timestamp: chat.timestamp,
+        lastMessage: lastMessage ? {
+          body: lastMessage.body,
+          timestamp: lastMessage.timestamp,
+          fromMe: lastMessage.fromMe
+        } : null,
+        profilePicUrl: null // Pode adicionar depois se necessário
+      };
+    }));
+    
+    // Ordenar por timestamp (mais recente primeiro)
+    chatList.sort((a, b) => b.timestamp - a.timestamp);
+    
+    res.json(chatList);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Buscar mensagens de um chat específico
+app.get('/chats/:chatId/messages', async (req, res) => {
+  const { chatId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+  
+  if (!client || connectionStatus !== 'connected') {
+    return res.status(400).json({ error: 'WhatsApp não conectado' });
+  }
+  
+  try {
+    const chat = await client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit });
+    
+    const messageList = await Promise.all(messages.map(async (msg) => {
+      let mediaData = null;
+      
+      if (msg.hasMedia) {
+        try {
+          const media = await msg.downloadMedia();
+          mediaData = {
+            mimetype: media.mimetype,
+            data: media.data,
+            filename: media.filename
+          };
+        } catch (err) {
+          console.error('Erro ao baixar mídia:', err.message);
+        }
+      }
+      
+      return {
+        id: msg.id._serialized,
+        body: msg.body,
+        from: msg.from,
+        to: msg.to,
+        timestamp: msg.timestamp,
+        fromMe: msg.fromMe,
+        hasMedia: msg.hasMedia,
+        mediaData: mediaData,
+        type: msg.type,
+        ack: msg.ack
+      };
+    }));
+    
+    res.json(messageList);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Enviar mensagem (texto ou mídia)
 app.post('/send', async (req, res) => {
-  const { to, message } = req.body;
+  const { to, message, mediaData } = req.body;
   
   if (!client || connectionStatus !== 'connected') {
     return res.status(400).json({ error: 'WhatsApp não conectado' });
@@ -256,7 +351,21 @@ app.post('/send', async (req, res) => {
   
   try {
     const chatId = to.includes('@') ? to : `${to}@c.us`;
-    await client.sendMessage(chatId, message);
+    
+    if (mediaData) {
+      // Enviar mídia
+      const { MessageMedia } = require('whatsapp-web.js');
+      const media = new MessageMedia(
+        mediaData.mimetype,
+        mediaData.data,
+        mediaData.filename
+      );
+      await client.sendMessage(chatId, media, { caption: message || '' });
+    } else {
+      // Enviar texto
+      await client.sendMessage(chatId, message);
+    }
+    
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
