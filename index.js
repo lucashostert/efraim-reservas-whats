@@ -134,13 +134,24 @@ async function startBot() {
     // ========== EVENTOS ==========
     client.onStateChange((state) => {
       console.log('🔄 Estado do WhatsApp mudou:', state);
-      connectionStatus = state;
-      io.emit('status', { status: state });
+      
+      // Mapear status do Venom para status padronizados
+      let mappedStatus = 'disconnected';
+      
+      if (state === 'CONNECTED' || state === 'isLogged' || state === 'successPageWhatsapp') {
+        mappedStatus = 'connected';
+      } else if (state === 'qrReadSuccess' || state === 'qrRead') {
+        mappedStatus = 'connecting';
+      } else if (state === 'browserClose' || state === 'desconnectedMobile' || state === 'CONFLICT' || state === 'UNLAUNCHED') {
+        mappedStatus = 'disconnected';
+      }
+      
+      connectionStatus = mappedStatus;
+      io.emit('status', { status: mappedStatus, rawStatus: state });
+      console.log(`📊 Status mapeado: ${state} → ${mappedStatus}`);
       
       if (state === 'CONFLICT' || state === 'UNLAUNCHED') {
         console.log('⚠️ Sessão desconectada, reiniciando...');
-        connectionStatus = 'disconnected';
-        io.emit('status', { status: 'disconnected' });
         client.useHere();
       }
     });
