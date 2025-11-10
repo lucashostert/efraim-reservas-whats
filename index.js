@@ -44,6 +44,24 @@ console.log('   FRONTEND_URL:', process.env.FRONTEND_URL || 'não configurado');
 console.log('   NODE_ENV:', process.env.NODE_ENV || 'development');
 console.log('');
 
+// Limpar tokens ANTES de tudo (forçar estado limpo)
+const fs = require('fs');
+const path = require('path');
+const tokensDir = path.join(__dirname, 'tokens');
+
+console.log('🗑️  LIMPEZA INICIAL: Removendo tokens antigos...');
+try {
+  if (fs.existsSync(tokensDir)) {
+    fs.rmSync(tokensDir, { recursive: true, force: true });
+    console.log('✅ Tokens antigos removidos');
+  }
+  fs.mkdirSync(tokensDir, { recursive: true });
+  console.log('✅ Diretório tokens criado limpo');
+} catch (err) {
+  console.log('⚠️  Erro na limpeza inicial:', err.message);
+}
+console.log('');
+
 // ========== INICIAR VENOM-BOT ==========
 async function startBot() {
   // Prevenir múltiplas inicializações simultâneas
@@ -61,26 +79,6 @@ async function startBot() {
   console.log('🚀 Iniciando Venom-Bot...');
   connectionStatus = 'connecting';
   io.emit('status', { status: 'connecting' });
-  
-  // Limpar diretório tokens completamente
-  const fs = require('fs');
-  const path = require('path');
-  const tokensDir = path.join(__dirname, 'tokens');
-  
-  console.log('🗑️  Limpando diretório tokens...');
-  
-  try {
-    if (fs.existsSync(tokensDir)) {
-      // Remover TUDO dentro de tokens
-      fs.rmSync(tokensDir, { recursive: true, force: true });
-      console.log('✅ Diretório tokens removido');
-    }
-    // Recriar limpo
-    fs.mkdirSync(tokensDir, { recursive: true });
-    console.log('✅ Diretório tokens recriado limpo');
-  } catch (err) {
-    console.log('⚠️  Erro ao limpar tokens:', err.message);
-  }
   
   try {
     console.log('🔄 Chamando venom.create...');
