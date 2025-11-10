@@ -62,18 +62,22 @@ async function startBot() {
   connectionStatus = 'connecting';
   io.emit('status', { status: 'connecting' });
   
-  // Limpar lock file se existir
+  // Limpar diretório de tokens se lock file existir
   const fs = require('fs');
   const path = require('path');
-  const lockFile = path.join(__dirname, 'tokens', SESSION_NAME, 'SingletonLock');
+  const tokensDir = path.join(__dirname, 'tokens', SESSION_NAME);
+  const lockFile = path.join(tokensDir, 'SingletonLock');
   
   try {
     if (fs.existsSync(lockFile)) {
-      console.log('🗑️  Removendo SingletonLock antigo...');
-      fs.unlinkSync(lockFile);
+      console.log('🗑️  Lock file detectado, limpando diretório de tokens...');
+      // Remover diretório inteiro para garantir estado limpo
+      fs.rmSync(tokensDir, { recursive: true, force: true });
+      console.log('✅ Diretório limpo, criando novo...');
+      fs.mkdirSync(tokensDir, { recursive: true });
     }
   } catch (err) {
-    console.log('⚠️  Não foi possível remover lock file:', err.message);
+    console.log('⚠️  Erro ao limpar tokens:', err.message);
   }
   
   try {
@@ -102,6 +106,8 @@ async function startBot() {
         debug: false,
         logQR: true,
         executablePath: '/usr/bin/chromium', // Chromium instalado via APT
+        folderNameToken: SESSION_NAME, // Usar nome fixo para persistir sessão
+        mkdirFolderToken: '', // Não criar subpastas
         browserArgs: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
