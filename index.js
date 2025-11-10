@@ -26,6 +26,14 @@ const WEBHOOK_ENDPOINT = `${BACKEND_URL}/api/whatsapp/webhook`;
 const PORT = process.env.PORT || 3000;
 const SESSION_NAME = 'efraim-whatsapp';
 
+// Debug: mostrar configurações ao iniciar
+console.log('🔧 Configurações:');
+console.log('   PORT:', PORT);
+console.log('   BACKEND_URL:', BACKEND_URL);
+console.log('   FRONTEND_URL:', process.env.FRONTEND_URL || 'não configurado');
+console.log('   NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('');
+
 // ========== INICIAR VENOM-BOT ==========
 async function startBot() {
   console.log('🚀 Iniciando Venom-Bot...');
@@ -130,7 +138,13 @@ async function startBot() {
 
   } catch (error) {
     console.error('❌ Erro ao iniciar Venom-Bot:', error);
-    process.exit(1);
+    console.error('Stack:', error.stack);
+    connectionStatus = 'error';
+    io.emit('status', { status: 'error', error: error.message });
+    
+    // NÃO fazer process.exit() para o servidor continuar rodando
+    console.log('⚠️  Venom-Bot falhou ao iniciar, mas servidor HTTP continua ativo');
+    console.log('⚠️  Você pode tentar reconectar via POST /connect');
   }
 }
 
@@ -297,18 +311,31 @@ app.post('/disconnect', async (req, res) => {
 });
 
 // ========== INICIAR SERVIDOR ==========
-server.listen(PORT, () => {
-  console.log(`🌐 Servidor rodando na porta ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`📍 Status: http://localhost:${PORT}/status`);
-  console.log(`📍 QR Code: http://localhost:${PORT}/qrcode`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
-  console.log('⚠️  Nota: Inicie conexão via POST /connect ou aguarde conexão automática');
+  console.log('='.repeat(50));
+  console.log(`🌐 Servidor rodando na porta ${PORT}`);
+  console.log(`📍 Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`📍 Status: http://0.0.0.0:${PORT}/status`);
+  console.log(`📍 QR Code: http://0.0.0.0:${PORT}/qrcode`);
+  console.log(`🔌 WebSocket: ws://0.0.0.0:${PORT}`);
+  console.log('='.repeat(50));
+  console.log('');
+  console.log('⚠️  Iniciando Venom-Bot automaticamente...');
   console.log('');
   
-  // Iniciar bot automaticamente
-  startBot();
+  // Iniciar bot automaticamente (não bloquear servidor se falhar)
+  startBot().catch(err => {
+    console.error('❌ Falha ao iniciar bot automaticamente:', err.message);
+  });
+});
+
+// Garantir que servidor escuta em todas as interfaces
+server.on('error', (error) => {
+  console.error('❌ Erro no servidor:', error);
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Porta ${PORT} já está em uso!`);
+  }
 });
 
 // Tratar erros não capturados
