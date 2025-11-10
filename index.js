@@ -34,7 +34,8 @@ let isStarting = false; // Guard para prevenir múltiplas chamadas simultâneas
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const WEBHOOK_ENDPOINT = `${BACKEND_URL}/api/whatsapp/webhook`;
 const PORT = process.env.PORT || 3000;
-const SESSION_NAME = 'efraim-whatsapp';
+// Usar timestamp para forçar nova sessão toda vez (QR sempre)
+const SESSION_NAME = 'efraim-whatsapp-' + Date.now();
 
 // Debug: mostrar configurações ao iniciar
 console.log('🔧 Configurações:');
