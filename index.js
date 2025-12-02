@@ -144,11 +144,29 @@ async function startBot() {
 
     // Mensagem recebida
     client.on('message', async (message) => {
+      // Ignorar mensagens especiais do WhatsApp
+      if (message.from === 'status@broadcast' || 
+          message.broadcast || 
+          message.from.includes('@lid') ||
+          message.isStatus) {
+        return;
+      }
+      
       console.log('📨 Mensagem recebida:', message.from, message.body);
       
       try {
         const chat = await message.getChat();
-        const contact = await message.getContact();
+        
+        // Tentar buscar contato com segurança
+        let contact = null;
+        let contactName = message.from;
+        
+        try {
+          contact = await message.getContact();
+          contactName = contact.pushname || contact.name || message.from;
+        } catch (err) {
+          console.warn('⚠️  Não foi possível buscar contato:', err.message);
+        }
         
         const messageData = {
           id: message.id._serialized,
@@ -159,8 +177,8 @@ async function startBot() {
           hasMedia: message.hasMedia,
           type: message.type,
           isGroup: message.from.includes('@g.us'),
-          chatName: chat.name,
-          contactName: contact.pushname || contact.name || message.from
+          chatName: chat.name || contactName,
+          contactName: contactName
         };
         
         // Emitir mensagem para frontend via WebSocket
@@ -263,10 +281,36 @@ app.get('/chats', async (req, res) => {
   }
   
   try {
+    console.log('🔍 Buscando chats...');
     const chats = await client.getChats();
+    console.log(`📊 Total de chats encontrados: ${chats.length}`);
+    
     const chatList = await Promise.all(chats.map(async (chat) => {
       try {
-        const contact = await chat.getContact();
+        // Validar se o chat tem as propriedades necessárias
+        if (!chat || !chat.id) {
+          console.warn('⚠️  Chat inválido encontrado, pulando...');
+          return null;
+        }
+        
+        // Ignorar chats especiais (status, broadcast, linked devices)
+        if (chat.id._serialized === 'status@broadcast' || 
+            chat.id._serialized.includes('@lid')) {
+          return null;
+        }
+        
+        let contact = null;
+        let contactName = 'Desconhecido';
+        
+        // Tentar buscar contato com segurança
+        try {
+          contact = await chat.getContact();
+          contactName = contact?.pushname || contact?.name || contact?.number || chat.name || 'Desconhecido';
+        } catch (err) {
+          console.warn(`⚠️  Erro ao buscar contato para ${chat.id._serialized}:`, err.message);
+          contactName = chat.name || 'Desconhecido';
+        }
+        
         const lastMessage = chat.lastMessage;
         
         // Tentar buscar foto de perfil
@@ -274,35 +318,41 @@ app.get('/chats', async (req, res) => {
         try {
           profilePicUrl = await chat.getProfilePicUrl();
         } catch (err) {
-          // Foto não disponível, usar null
+          // Foto não disponível, usar null (normal para muitos contatos)
         }
         
         return {
           id: chat.id._serialized,
-          name: chat.name || contact.pushname || contact.number,
-          isGroup: chat.isGroup,
-          unreadCount: chat.unreadCount,
-          timestamp: chat.timestamp,
+          name: contactName,
+          isGroup: chat.isGroup || false,
+          unreadCount: chat.unreadCount || 0,
+          timestamp: chat.timestamp || Date.now(),
           lastMessage: lastMessage ? {
-            body: lastMessage.body,
-            timestamp: lastMessage.timestamp,
-            fromMe: lastMessage.fromMe
+            body: lastMessage.body || '',
+            timestamp: lastMessage.timestamp || Date.now(),
+            fromMe: lastMessage.fromMe || false
           } : null,
           profilePicUrl: profilePicUrl
         };
       } catch (err) {
-        console.error('Erro ao processar chat:', err.message);
+        console.error('❌ Erro ao processar chat:', err.message);
         return null;
       }
     }));
     
     // Filtrar chats nulos e ordenar por timestamp (mais recente primeiro)
     const validChats = chatList.filter(chat => chat !== null);
-    validChats.sort((a, b) => b.timestamp - a.timestamp);
+    validChats.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     
+    console.log(`✅ Retornando ${validChats.length} chats válidos`);
     res.json(validChats);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('❌ Erro ao buscar chats:', error.message);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message,
+      details: 'Erro ao processar lista de chats. Verifique os logs do servidor.'
+    });
   }
 });
 
@@ -316,42 +366,58 @@ app.get('/chats/:chatId/messages', async (req, res) => {
   }
   
   try {
+    console.log(`🔍 Buscando mensagens para chat: ${chatId}`);
     const chat = await client.getChatById(chatId);
     const messages = await chat.fetchMessages({ limit });
+    console.log(`📊 Total de mensagens encontradas: ${messages.length}`);
     
     const messageList = await Promise.all(messages.map(async (msg) => {
-      let mediaData = null;
-      
-      if (msg.hasMedia) {
-        try {
-          const media = await msg.downloadMedia();
-          mediaData = {
-            mimetype: media.mimetype,
-            data: media.data,
-            filename: media.filename
-          };
-        } catch (err) {
-          console.error('Erro ao baixar mídia:', err.message);
+      try {
+        let mediaData = null;
+        
+        if (msg.hasMedia) {
+          try {
+            const media = await msg.downloadMedia();
+            mediaData = {
+              mimetype: media.mimetype,
+              data: media.data,
+              filename: media.filename
+            };
+          } catch (err) {
+            console.error('⚠️  Erro ao baixar mídia:', err.message);
+          }
         }
+        
+        return {
+          id: msg.id?._serialized || `temp-${Date.now()}`,
+          body: msg.body || '',
+          from: msg.from || '',
+          to: msg.to || '',
+          timestamp: msg.timestamp || Date.now(),
+          fromMe: msg.fromMe || false,
+          hasMedia: msg.hasMedia || false,
+          mediaData: mediaData,
+          type: msg.type || 'chat',
+          ack: msg.ack || 0
+        };
+      } catch (err) {
+        console.error('❌ Erro ao processar mensagem:', err.message);
+        return null;
       }
-      
-      return {
-        id: msg.id._serialized,
-        body: msg.body,
-        from: msg.from,
-        to: msg.to,
-        timestamp: msg.timestamp,
-        fromMe: msg.fromMe,
-        hasMedia: msg.hasMedia,
-        mediaData: mediaData,
-        type: msg.type,
-        ack: msg.ack
-      };
     }));
     
-    res.json(messageList);
+    // Filtrar mensagens nulas
+    const validMessages = messageList.filter(msg => msg !== null);
+    console.log(`✅ Retornando ${validMessages.length} mensagens válidas`);
+    
+    res.json(validMessages);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('❌ Erro ao buscar mensagens:', error.message);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message,
+      details: 'Erro ao buscar mensagens. Verifique os logs do servidor.'
+    });
   }
 });
 
